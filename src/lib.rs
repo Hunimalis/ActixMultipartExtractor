@@ -69,7 +69,7 @@ impl File {
 
 fn merge(obj: &mut serde_json::Value, field: (String, Value)) {
     if let Value::Object(ref mut map) = obj {
-        if &field.0[field.0.len() - 2..] == "[]" {
+        if field.0.len() >= 2 && &field.0[field.0.len() - 2..] == "[]" {
             let name = &field.0[..field.0.len() - 2];
 
             // if array field doesn't exist at time, we create it
@@ -93,7 +93,7 @@ async fn parse<T: serde::de::DeserializeOwned>(
     while let Some(item) = payload.next().await {
         let mut field = match item {
             Ok(item) => item,
-            Err(_) => return Err(())
+            Err(_) => return Err(()),
         };
 
         let _type = field.content_type().to_string();
@@ -112,7 +112,7 @@ async fn parse<T: serde::de::DeserializeOwned>(
                         Ok(data) => {
                             d.append(&mut data.to_vec()); // = data.to_vec();
                         }
-                        Err(e) => return Err(())
+                        _ => return Err(()),
                     }
                 }
 
@@ -133,23 +133,38 @@ async fn parse<T: serde::de::DeserializeOwned>(
                 if let Some(value) = field.next().await {
                     match value {
                         Ok(value) => match std::str::from_utf8(&value) {
-                            Ok(value) => match value.parse::<isize>() {
-                                Ok(value) => merge(
-                                    &mut obj,
-                                    (
-                                        name.to_string(),
-                                        Value::Number(serde_json::Number::from(value)),
-                                    ),
-                                ),
-                                Err(_) => match value {
-                                    "true" | "false" => merge(
+                            Ok(value) => match value.parse::<usize>() {
+                                Ok(value) => {
+                                    merge(
                                         &mut obj,
-                                        (name.to_string(), Value::Bool(value == "true")),
-                                    ),
-                                    _ => merge(
-                                        &mut obj,
-                                        (name.to_string(), Value::String(value.to_owned())),
-                                    ),
+                                        (
+                                            name.to_string(),
+                                            Value::Number(serde_json::Number::from(value)),
+                                        ),
+                                    );
+                                }
+                                Err(_) => match value.parse::<f64>() {
+                                    Ok(value) => {
+                                        merge(
+                                            &mut obj,
+                                            (
+                                                name.to_string(),
+                                                Value::Number(
+                                                    serde_json::Number::from_f64(value).unwrap(),
+                                                ),
+                                            ),
+                                        );
+                                    }
+                                    Err(_) => match value {
+                                        "true" | "false" => merge(
+                                            &mut obj,
+                                            (name.to_string(), Value::Bool(value == "true")),
+                                        ),
+                                        _ => merge(
+                                            &mut obj,
+                                            (name.to_string(), Value::String(value.to_owned())),
+                                        ),
+                                    },
                                 },
                             },
                             Err(_) => merge(&mut obj, (name.to_string(), Value::Null)),
@@ -163,6 +178,6 @@ async fn parse<T: serde::de::DeserializeOwned>(
 
     match serde_json::from_value::<T>(obj) {
         Ok(obj) => Ok(obj),
-        Err(e) => Err(())
+        _ => Err(()),
     }
 }
